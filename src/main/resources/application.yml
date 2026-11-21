@@ -1,0 +1,102 @@
+server:
+  port: ${PORT:8080}   # hosting platforms inject PORT
+
+spring:
+  application:
+    name: order-service
+  # Default: in-memory H2 (no setup). Use the "postgres" or "mysql" profile for a real database.
+  datasource:
+    url: jdbc:h2:mem:orders;MODE=MySQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    hikari:
+      maximum-pool-size: 5     # small pool: fits free-tier database connection limits
+  flyway:
+    # {vendor} resolves to h2 / postgresql / mysql, so each DB gets its own SQL dialect
+    locations: classpath:db/migration/{vendor}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none           # schema is owned by Flyway migrations
+    properties:
+      hibernate:
+        type:
+          preferred_instant_jdbc_type: TIMESTAMP
+        jdbc:
+          time_zone: UTC
+          batch_size: 50
+        default_batch_fetch_size: 50   # avoids N+1 when listing orders with items
+        order_inserts: true
+  h2:
+    console:
+      enabled: true
+  # Messaging: Apache ActiveMQ Artemis. Default: in-process embedded broker (no install).
+  # Real broker: ARTEMIS_MODE=native, ARTEMIS_URL=tcp://host:61616, SPRING_ARTEMIS_USER / SPRING_ARTEMIS_PASSWORD.
+  artemis:
+    mode: ${ARTEMIS_MODE:embedded}
+    broker-url: ${ARTEMIS_URL:tcp://localhost:61616}
+    embedded:
+      persistent: false
+      queues: orders.events,orders.status-updates
+  jms:
+    template:
+      qos-enabled: true
+      delivery-mode: persistent
+      time-to-live: 1h          # unconsumed events expire instead of piling up in the broker
+
+orders:
+  messaging:
+    enabled: true
+    events-queue: orders.events                   # outbound: every order change, as JSON
+    status-updates-queue: orders.status-updates   # inbound: {"orderId": 1, "status": "SHIPPED"}
+  processing:
+    # How often PENDING orders are promoted to PROCESSING (ISO-8601 duration)
+    interval: PT5M
+    initial-delay: PT1M
+    enabled: true
+  pricing:
+    strategy: standard          # standard | bulk-discount   (Strategy pattern)
+  validation:
+    max-order-value: 1000000    # used by MaxOrderValueValidator (Chain of Responsibility)
+
+logging:
+  level:
+    org.apache.activemq.audit: WARN        # Artemis audit log is very chatty at INFO
+    org.hibernate.orm.incubating: ERROR    # harmless notice about preferred_instant_jdbc_type
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+---
+# PostgreSQL. Either set DATABASE_URL (postgresql://user:pass@host:5432/db, as Render/Neon/Supabase
+# provide it) or DB_URL / DB_USER / DB_PASSWORD with a JDBC URL.
+spring:
+  config:
+    activate:
+      on-profile: postgres
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/orders}
+    username: ${DB_USER:orders}
+    password: ${DB_PASSWORD:orders}
+  h2:
+    console:
+      enabled: false
+
+---
+spring:
+  config:
+    activate:
+      on-profile: mysql
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/orders?createDatabaseIfNotExist=true}
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:root}
+  h2:
+    console:
+      enabled: false

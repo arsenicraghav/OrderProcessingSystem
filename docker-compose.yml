@@ -1,0 +1,65 @@
+# Local stack.
+#   Everything in containers:      docker compose up --build
+#   Only infrastructure:           docker compose up -d postgres artemis   (then run the app with Maven)
+#   MySQL instead of PostgreSQL:   docker compose --profile mysql up -d mysql
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orders
+      POSTGRES_USER: orders
+      POSTGRES_PASSWORD: orders
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orders -d orders"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Apache ActiveMQ Artemis 2.57.0. Web console: http://localhost:8161 (artemis / artemis)
+  artemis:
+    image: apache/artemis:2.57.0
+    environment:
+      ARTEMIS_USER: artemis
+      ARTEMIS_PASSWORD: artemis
+    ports:
+      - "61616:61616"
+      - "8161:8161"
+
+  # The application itself, built from the Dockerfile
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      artemis:
+        condition: service_started   # the JMS listener reconnects automatically if Artemis is still booting
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      DB_URL: jdbc:postgresql://postgres:5432/orders
+      DB_USER: orders
+      DB_PASSWORD: orders
+      ARTEMIS_MODE: native
+      ARTEMIS_URL: tcp://artemis:61616
+      SPRING_ARTEMIS_USER: artemis
+      SPRING_ARTEMIS_PASSWORD: artemis
+      # Background job timing; shorten for demos, e.g. ORDERS_PROCESSING_INTERVAL=PT15S docker compose up -d
+      ORDERS_PROCESSING_INTERVAL: ${ORDERS_PROCESSING_INTERVAL:-PT5M}
+      ORDERS_PROCESSING_INITIAL_DELAY: ${ORDERS_PROCESSING_INITIAL_DELAY:-PT1M}
+    ports:
+      - "8080:8080"
+
+  mysql:
+    image: mysql:8.4
+    profiles: ["mysql"]
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: orders
+    ports:
+      - "3306:3306"
+
+volumes:
+  pgdata:

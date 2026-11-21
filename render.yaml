@@ -1,0 +1,24 @@
+# Render Blueprint: free web service + free PostgreSQL.
+# Note: Render's free Postgres expires 30 days after creation (see README).
+databases:
+  - name: orders-db
+    plan: free
+    databaseName: orders
+    user: orders
+    ipAllowList: []            # private network only: reachable from the web service, not the internet
+
+services:
+  - type: web
+    name: order-service
+    runtime: docker
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: postgres
+      - key: DATABASE_URL       # converted to JDBC by DatabaseUrlEnvironmentPostProcessor
+        fromDatabase:
+          name: orders-db
+          property: connectionString
+      - key: ORDERS_PROCESSING_INTERVAL
+        value: PT5M
