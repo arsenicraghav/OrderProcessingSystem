@@ -48,6 +48,25 @@ Artemis console http://localhost:8161 (artemis/artemis, container modes) · H2 c
 `DatabaseUrlEnvironmentPostProcessor` (an Adapter) converts the platform-style `DATABASE_URL` into
 JDBC settings, keeping query options like `sslmode=require`.
 
+### Messaging (ActiveMQ Artemis 2.57.0)
+
+| Queue | Direction | Payload |
+|---|---|---|
+| `orders.events` | out | Every committed change: `ORDER_CREATED`, `ORDER_STATUS_CHANGED`, `PENDING_ORDERS_PROMOTED` as versioned JSON (`OrderEventMessage`), with JMS properties `eventType` and `orderId` for selectors |
+| `orders.status-updates` | in | `{"orderId": 7, "status": "SHIPPED"}` from a warehouse/shipping system; applied through the CommandBus, so the same State rules apply |
+| `DLQ` / `ExpiryQueue` | broker | Messages that failed 4 delivery attempts (1s/2s/4s back-off) / events that expired unconsumed after 1 h |
+
+- Events are published **after the database commit** (`@TransactionalEventListener`); a broker outage is logged and never
+  fails the HTTP request.
+- Inbound messages with permanent problems (bad JSON, unknown order or status, illegal transition) are logged and dropped
+  so they can't block the queue; transient failures are retried, then go to `DLQ`.
+- Default mode is an **embedded, in-memory** broker (capped at 64 MB, `orders.messaging.embedded-max-memory`). For a real
+  broker: `ARTEMIS_MODE=native`, `ARTEMIS_URL=tcp://host:61616`, `SPRING_ARTEMIS_USER`, `SPRING_ARTEMIS_PASSWORD`.
+- **Artemis web console** (Docker Compose only): http://localhost:8161/console, `artemis` / `artemis`.
+- On Render the broker is embedded in the app, so there is no web console there; messaging is covered by the tests.
+- Version note: Artemis moved to the `org.apache.artemis` groupId (same Java packages). The pom swaps the starter's
+  client for the new coordinates, sets `artemis.version=2.57.0`, and aligns Netty to 4.1.137.
+
 ## Deploy (demo)
 
 The repo includes a `Dockerfile`, a Render blueprint (`render.yaml`) and a GitHub Actions build

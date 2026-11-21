@@ -4,7 +4,7 @@
 #   ./scripts/e2e.sh                  # against http://localhost:8080 (any run mode)
 #   BASE_URL=http://host:8080 ./scripts/e2e.sh
 #
-# Docker Compose stack only: also checks Artemis (inbound status updates) and PostgreSQL rows.
+# Docker Compose stack only (BASE_URL on localhost): also checks Artemis (inbound status updates) and PostgreSQL rows.
 # For a quick background-job check, start the stack with a short interval:
 #   ORDERS_PROCESSING_INTERVAL=PT15S ORDERS_PROCESSING_INITIAL_DELAY=PT5S docker compose up -d --build
 set -u
@@ -13,6 +13,12 @@ BASE_URL="${BASE_URL:-http://localhost:8080}"
 JOB_WAIT_SECONDS="${JOB_WAIT_SECONDS:-330}"     # default job interval is 5 min (+ startup delay)
 ARTEMIS_CONTAINER="${ARTEMIS_CONTAINER:-order-service-artemis-1}"
 POSTGRES_CONTAINER="${POSTGRES_CONTAINER:-order-service-postgres-1}"
+
+# Docker-based checks (steps 10-12) only make sense when the app under test is the local compose stack
+case "$BASE_URL" in
+  *localhost*|*127.0.0.1*) LOCAL_STACK=1 ;;
+  *) LOCAL_STACK=0 ;;
+esac
 
 PASS=0; FAIL=0
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -120,7 +126,7 @@ call PATCH "/api/orders/$A/status" '{"status":"SHIPPED"}'
 expect_code 409 "no moves after DELIVERED"
 
 # ---------------------------------------------------------------------------------------------
-if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$ARTEMIS_CONTAINER"; then
+if [ "$LOCAL_STACK" = 1 ] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$ARTEMIS_CONTAINER"; then
   step "10. Messaging: inbound status update via Artemis queue orders.status-updates"
   call POST /api/orders '{"customerId":"e2e-cust","items":[{"productId":"sku-5","productName":"Monitor","quantity":1,"unitPrice":150}]}'
   C=$(json_id); echo "  order C = $C"
@@ -140,7 +146,7 @@ if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$ARTEMIS_CONTAINER"; 
   echo "  (MESSAGE_COUNT > 0 = events waiting for consumers; browse them at http://localhost:8161)"
 fi
 
-if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$POSTGRES_CONTAINER"; then
+if [ "$LOCAL_STACK" = 1 ] && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$POSTGRES_CONTAINER"; then
   step "12. Data persisted in PostgreSQL"
   docker exec "$POSTGRES_CONTAINER" psql -U orders -d orders -c \
     "select id, customer_id, status, total_amount, version from orders where customer_id='e2e-cust' order by id;" \
