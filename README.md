@@ -1,5 +1,9 @@
 # Order Processing Service
 
+![CI](https://github.com/arsenicraghav/OrderProcessingSystem/actions/workflows/ci.yml/badge.svg)
+
+**Live demo:** _add your Render URL here_ (free tier: first request after idle takes ~1 min)
+
 Spring Boot 3.3 / Java 17+ / JPA + SQL, structured around classic design patterns.
 Databases: **H2** (default, zero setup), **PostgreSQL** (`postgres` profile, used in production),
 **MySQL 8** (`mysql` profile). The schema is managed by **Flyway** with one SQL dialect per database.
